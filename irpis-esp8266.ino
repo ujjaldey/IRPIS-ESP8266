@@ -1,8 +1,12 @@
+#include <ArduinoJson.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 
 #define DEBUG_OUTPUT 0
 #define MQTT_COMMAND_TOPIC "irpis/esp8266/command"
+#define MQTT_SENDER "IRPIS-RPI"
+#define MQTT_ACTION_ON "ON"
+#define MQTT_ACTION_OFF "OFF"
 
 // Set the WIFI SSID and password
 // Replace with your SSID and password
@@ -52,7 +56,7 @@ void initWiFi() {
  */
 void initMqtt() {
   client.setServer(mqttServer, 1883);
-  client.setCallback(mqttCallback);
+  client.setCallback(callbackMqtt);
   connectMqtt();
 }
 
@@ -78,12 +82,46 @@ void connectMqtt() {
 /*
  * Callback function upon receiving message from MQTT
  */
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
+void callbackMqtt(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived in topic: ");
   Serial.println(topic);
   Serial.println("Message:");
   payload[length] = '\0';
   Serial.println((char*)payload);
+
+  StaticJsonDocument<256> doc;
+  deserializeJson(doc, payload, length);
+  String sender = doc["sender"];
+  String action = doc["action"];
+  long duration = doc["duration"];
+
+  if (!((String)MQTT_SENDER).equals(sender)) {
+    sendResponseMqtt(false, "Unknown sender " + sender);
+  } else {
+    if (action == (String)MQTT_ACTION_ON) {
+      actionOn();
+      sendResponseMqtt(true, "OK");
+    } else if (action == (String)MQTT_ACTION_OFF) {
+      actionOff();
+      Serial.println("off");
+      sendResponseMqtt(true, "OK");
+    } else {
+      sendResponseMqtt(false, "Unknown action " + action);
+    }
+  }
+}
+
+void actionOn() {
+  Serial.println("on");
+}
+
+void actionOff() {
+  Serial.println("on");
+}
+
+void sendResponseMqtt(bool status, String message) {
+  Serial.print("Sending message ");
+  Serial.println(message);
 }
 
 void setup() {

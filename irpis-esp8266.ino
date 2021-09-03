@@ -26,14 +26,16 @@ const char* mqttPassword = "<mqtt password>";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
-unsigned long previousMillis = 0;
+unsigned long aliveMillis = 0;
+unsigned long activeStartMillis = 0;
+unsigned long activeDurationMillis = 0;
 
 // Prototype function with default argument values
 void publishResponse(String type, bool success = true, String message = "");
 
 /*
- * Initiate and connect to WiFi
- */
+   Initiate and connect to WiFi
+*/
 void initWiFi() {
   // Set WiFi mode
   WiFi.mode(WIFI_STA);
@@ -61,8 +63,8 @@ void initWiFi() {
 }
 
 /*
- * Initiate and connect to MQTT server
- */
+   Initiate and connect to MQTT server
+*/
 void initMqtt() {
   client.setServer(mqttServer, 1883);
   client.setCallback(callbackMqtt);
@@ -70,16 +72,16 @@ void initMqtt() {
 }
 
 /*
- * Initiate the output pin
- */
+   Initiate the output pin
+*/
 void initOutputPin(uint8_t pin) {
   pinMode(pin, OUTPUT);
   digitalWrite(pin, HIGH);
 }
 
 /*
- * Connect to MQTT server
- */
+   Connect to MQTT server
+*/
 void connectMqtt() {
   while (!client.connected()) {
     if (client.connect(clientID, mqttUser, mqttPassword)) {
@@ -97,8 +99,8 @@ void connectMqtt() {
 }
 
 /*
- * Callback function upon receiving message from MQTT
- */
+   Callback function upon receiving message from MQTT
+*/
 void callbackMqtt(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived in topic: ");
   Serial.println(topic);
@@ -110,7 +112,8 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
   deserializeJson(doc, payload, length);
   String sender = doc["sender"];
   String action = doc["action"];
-  long duration = doc["duration"];
+  unsigned long duration = doc["duration"];
+  activeDurationMillis = duration * 1000;
 
   if (!((String)MQTT_SENDER).equals(sender)) {
     publishResponse(RESPONSE_TYPE_COMMAND, false, "Unknown sender " + sender);
@@ -119,10 +122,8 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
 
     if (action == (String)MQTT_ACTION_ON) {
       actionOn(pin);
-      publishResponse(RESPONSE_TYPE_COMMAND);
     } else if (action == (String)MQTT_ACTION_OFF) {
       actionOff(pin);
-      publishResponse(RESPONSE_TYPE_COMMAND);
     } else {
       publishResponse(RESPONSE_TYPE_COMMAND, false, "Unknown action " + action);
     }
@@ -130,38 +131,40 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
 }
 
 /*
- * Turn on the output pin
- */
+   Turn on the output pin
+*/
 void actionOn(uint8_t pin) {
   Serial.println("Turning pin ON");
   digitalWrite(pin, LOW);
-  
-}
-
-/*
- * Turn off the output pin
- */
-void actionOff(uint8_t pin) {
-  Serial.println("Turning pin OFF");
-  digitalWrite(pin, HIGH);
+  activeStartMillis = millis();
   publishResponse(RESPONSE_TYPE_COMMAND);
 }
 
 /*
- * Check wheter the output pin is on or off
- */
-bool isOutputOn(uint8_t pin) {
-  return digitalRead(pin);
+   Turn off the output pin
+*/
+void actionOff(uint8_t pin) {
+  Serial.println("Turning pin OFF");
+  digitalWrite(pin, HIGH);
+  activeDurationMillis = 0;
+  publishResponse(RESPONSE_TYPE_COMMAND);
 }
 
 /*
- * Publishes the response. The response could be for COMMAND or ALIVE. The response will vary based on success or failure
- */
+   Check wheter the output pin is on or off
+*/
+bool isOutputOn(uint8_t pin) {
+  return !digitalRead(pin); // @TODO remove '!' later
+}
+
+/*
+   Publishes the response. The response could be for COMMAND or ALIVE. The response will vary based on success or failure
+*/
 void publishResponse(String type, bool success, String message) {
-  String status = (!isOutputOn(OUTPUT_PIN)) ? "ON" : "OFF";
+  String status = isOutputOn(OUTPUT_PIN) ? "ON" : "OFF";
   String successStr = success ? "true" : "false";
   String responseJsonStr;
-  
+
   if (success) {
     responseJsonStr = "{\"sender\": \"IRPIS-ESP8266\", \"success\": \"" + successStr + "\", \"type\": \"" + type + "\", \"status\": \"" + status + "\"}";
   } else {
@@ -178,8 +181,8 @@ void publishResponse(String type, bool success, String message) {
 }
 
 /*
- * The code that runs only once
- */
+   The code that runs only once
+*/
 void setup() {
   // Set the BAUD rate to 115200
   Serial.begin(115200);
@@ -193,8 +196,8 @@ void setup() {
 }
 
 /*
- * The code that keeps running
- */
+    The code that keeps running
+*/
 void loop() {
   unsigned long currentMillis = millis();
 
@@ -203,10 +206,21 @@ void loop() {
   }
 
   client.loop();
-  
-  if ((unsigned long)(currentMillis - previousMillis) >= ALIVE_PUBLISH_INTERVAL_MILLISEC) {
-    previousMillis = currentMillis;
+
+  if ((currentMillis >= aliveMillis) && (unsigned long)(currentMillis - aliveMillis) >= ALIVE_PUBLISH_INTERVAL_MILLISEC) {
+    aliveMillis = currentMillis;
     publishResponse(RESPONSE_TYPE_ALIVE);
-    delay(50);
   }
+
+  // Serial.println(currentMillis);
+  // Serial.println(activeStartMillis);
+  // Serial.println(currentMillis - activeStartMillis);
+  // Serial.println(activeDurationMillis);
+  // Serial.println(isOutputOn(OUTPUT_PIN));
+  // Serial.println("=============");
+  if (isOutputOn(OUTPUT_PIN) && (currentMillis >= activeStartMillis) && (unsigned long)(currentMillis - activeStartMillis) > activeDurationMillis) {
+    actionOff(OUTPUT_PIN);
+  }
+
+  delay(50);
 }

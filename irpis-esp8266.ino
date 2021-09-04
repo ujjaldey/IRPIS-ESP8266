@@ -8,7 +8,12 @@
 #define MQTT_SENDER "IRPIS-RPI"
 #define MQTT_ACTION_ON "ON"
 #define MQTT_ACTION_OFF "OFF"
-#define OUTPUT_PIN 2
+#define SUCCESS_TRUE "true"
+#define SUCCESS_FALSE "false"
+#define NOTIFICATION_TYPE_WIFI "WIFI"
+#define NOTIFICATION_TYPE_MQTT "MQTT"
+#define PAYLOAD_GPIO_PIN 2
+#define NOTIFICATION_LED_PIN 16
 #define ALIVE_PUBLISH_INTERVAL_MILLISEC 10000
 #define RESPONSE_TYPE_ALIVE "ALIVE"
 #define RESPONSE_TYPE_COMMAND "COMMAND"
@@ -51,8 +56,8 @@ void initWiFi() {
 
   // Wait for the connection
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
     Serial.print(".");
+    showNotificationBeeps(NOTIFICATION_LED_PIN, NOTIFICATION_TYPE_WIFI);
   }
   Serial.println("");
   Serial.print("WiFi connected to ");
@@ -72,11 +77,53 @@ void initMqtt() {
 }
 
 /*
-   Initiate the output pin
+   Initiate the output notification LED pin
 */
-void initOutputPin(uint8_t pin) {
+void initNotificationLedPin(uint8_t pin) {
   pinMode(pin, OUTPUT);
   digitalWrite(pin, HIGH);
+}
+
+/*
+   Initiate the output payload GPIO pin
+*/
+void initOutputPayloadPin(uint8_t pin) {
+  pinMode(pin, OUTPUT);
+  digitalWrite(pin, HIGH);
+}
+
+/*
+   Shows the notification beeps based on the type
+*/
+void showNotificationBeeps(uint8_t pin, String notificationType) {
+  if (notificationType == NOTIFICATION_TYPE_WIFI) {
+    digitalWrite(pin, !digitalRead(pin));
+    delay(100);
+    digitalWrite(pin, !digitalRead(pin));
+    delay(100);
+    digitalWrite(pin, !digitalRead(pin));
+    delay(100);
+    digitalWrite(pin, !digitalRead(pin));
+    delay(700);
+  } else if (notificationType == NOTIFICATION_TYPE_MQTT) {
+    digitalWrite(pin, !digitalRead(pin));
+    delay(100);
+    digitalWrite(pin, !digitalRead(pin));
+    delay(100);
+    digitalWrite(pin, !digitalRead(pin));
+    delay(100);
+    digitalWrite(pin, !digitalRead(pin));
+    delay(100);
+    digitalWrite(pin, !digitalRead(pin));
+    delay(100);
+    digitalWrite(pin, !digitalRead(pin));
+    delay(500);
+  } else {
+    digitalWrite(pin, !digitalRead(pin));
+    delay(300);
+    digitalWrite(pin, !digitalRead(pin));
+    delay(700);
+  }
 }
 
 /*
@@ -93,7 +140,12 @@ void connectMqtt() {
       Serial.print("Connection to MQTT failed. Return code is ");
       Serial.println(client.state());
       Serial.println("Retrying in 30 seconds");
-      delay(30 * 1000);
+
+      for (unsigned int i = 0; i < 30; i++) {
+        Serial.print(".");
+        showNotificationBeeps(NOTIFICATION_LED_PIN, NOTIFICATION_TYPE_MQTT);
+      }
+      Serial.println("");
     }
   }
 }
@@ -118,12 +170,10 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
   if (!((String)MQTT_SENDER).equals(sender)) {
     publishResponse(RESPONSE_TYPE_COMMAND, false, "Unknown sender " + sender);
   } else {
-    uint8_t pin = OUTPUT_PIN;
-
     if (action == (String)MQTT_ACTION_ON) {
-      actionOn(pin);
+      activatePayload(PAYLOAD_GPIO_PIN);
     } else if (action == (String)MQTT_ACTION_OFF) {
-      actionOff(pin);
+      deactivatePayload(PAYLOAD_GPIO_PIN);
     } else {
       publishResponse(RESPONSE_TYPE_COMMAND, false, "Unknown action " + action);
     }
@@ -131,39 +181,39 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
 }
 
 /*
-   Turn on the output pin
+   Turn on the output GPIO pin
 */
-void actionOn(uint8_t pin) {
+void activatePayload(uint8_t pin) {
   if (!isOutputOn(pin)) {
-    Serial.println("Turning pin ON");
+    Serial.println("Turning payload ON");
     digitalWrite(pin, LOW);
     activeStartMillis = millis();
     publishResponse(RESPONSE_TYPE_COMMAND);
   } else {
-    String message = "Pin is already ON";
+    String message = "Payload is already ON";
     Serial.println(message);
     publishResponse(RESPONSE_TYPE_COMMAND, false, message);
   }
 }
 
 /*
-   Turn off the output pin
+   Turn off the output GPIO pin
 */
-void actionOff(uint8_t pin) {
+void deactivatePayload(uint8_t pin) {
   if (isOutputOn(pin)) {
-    Serial.println("Turning pin OFF");
+    Serial.println("Turning payload OFF");
     digitalWrite(pin, HIGH);
     activeDurationMillis = 0;
     publishResponse(RESPONSE_TYPE_COMMAND);
   } else {
-    String message = "Pin is already OFF";
+    String message = "Payload is already OFF";
     Serial.println(message);
     publishResponse(RESPONSE_TYPE_COMMAND, false, message);
   }
 }
 
 /*
-   Check wheter the output pin is on or off
+   Check wheter the output GPIO pin is on or off
 */
 bool isOutputOn(uint8_t pin) {
   return !digitalRead(pin);  // @TODO remove '!' later
@@ -173,8 +223,8 @@ bool isOutputOn(uint8_t pin) {
    Publishes the response. The response could be for COMMAND or ALIVE. The response will vary based on success or failure
 */
 void publishResponse(String type, bool success, String message) {
-  String status = isOutputOn(OUTPUT_PIN) ? "ON" : "OFF";
-  String successStr = success ? "true" : "false";
+  String status = isOutputOn(PAYLOAD_GPIO_PIN) ? MQTT_ACTION_ON : MQTT_ACTION_OFF;
+  String successStr = success ? SUCCESS_TRUE : SUCCESS_FALSE;
   String responseJsonStr;
 
   if (success) {
@@ -201,10 +251,13 @@ void setup() {
   // Set the debug output mode
   Serial.setDebugOutput(DEBUG_OUTPUT);
 
+  // Initiate the notification LED and output GPIO pin
+  initNotificationLedPin(NOTIFICATION_LED_PIN);
+  initOutputPayloadPin(PAYLOAD_GPIO_PIN);
+
   // Setup the WiFi parameters and connect to it
   initWiFi();
   initMqtt();
-  initOutputPin(OUTPUT_PIN);
 }
 
 /*
@@ -224,14 +277,8 @@ void loop() {
     publishResponse(RESPONSE_TYPE_ALIVE);
   }
 
-  // Serial.println(currentMillis);
-  // Serial.println(activeStartMillis);
-  // Serial.println(currentMillis - activeStartMillis);
-  // Serial.println(activeDurationMillis);
-  // Serial.println(isOutputOn(OUTPUT_PIN));
-  // Serial.println("=============");
-  if (isOutputOn(OUTPUT_PIN) && (currentMillis >= activeStartMillis) && (unsigned long)(currentMillis - activeStartMillis) > activeDurationMillis) {
-    actionOff(OUTPUT_PIN);
+  if (isOutputOn(PAYLOAD_GPIO_PIN) && (currentMillis >= activeStartMillis) && (unsigned long)(currentMillis - activeStartMillis) > activeDurationMillis) {
+    deactivatePayload(PAYLOAD_GPIO_PIN);
   }
 
   delay(50);

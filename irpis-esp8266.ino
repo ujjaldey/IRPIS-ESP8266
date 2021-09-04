@@ -134,27 +134,39 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
    Turn on the output pin
 */
 void actionOn(uint8_t pin) {
-  Serial.println("Turning pin ON");
-  digitalWrite(pin, LOW);
-  activeStartMillis = millis();
-  publishResponse(RESPONSE_TYPE_COMMAND);
+  if (!isOutputOn(pin)) {
+    Serial.println("Turning pin ON");
+    digitalWrite(pin, LOW);
+    activeStartMillis = millis();
+    publishResponse(RESPONSE_TYPE_COMMAND);
+  } else {
+    String message = "Pin is already ON";
+    Serial.println(message);
+    publishResponse(RESPONSE_TYPE_COMMAND, false, message);
+  }
 }
 
 /*
    Turn off the output pin
 */
 void actionOff(uint8_t pin) {
-  Serial.println("Turning pin OFF");
-  digitalWrite(pin, HIGH);
-  activeDurationMillis = 0;
-  publishResponse(RESPONSE_TYPE_COMMAND);
+  if (isOutputOn(pin)) {
+    Serial.println("Turning pin OFF");
+    digitalWrite(pin, HIGH);
+    activeDurationMillis = 0;
+    publishResponse(RESPONSE_TYPE_COMMAND);
+  } else {
+    String message = "Pin is already OFF";
+    Serial.println(message);
+    publishResponse(RESPONSE_TYPE_COMMAND, false, message);
+  }
 }
 
 /*
    Check wheter the output pin is on or off
 */
 bool isOutputOn(uint8_t pin) {
-  return !digitalRead(pin); // @TODO remove '!' later
+  return !digitalRead(pin);  // @TODO remove '!' later
 }
 
 /*

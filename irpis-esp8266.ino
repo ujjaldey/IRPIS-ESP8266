@@ -71,8 +71,10 @@ void initWiFi() {
    Initiate and connect to MQTT server
 */
 void initMqtt() {
+  // Set the MQTT server and callback function
   client.setServer(mqttServer, 1883);
   client.setCallback(callbackMqtt);
+  // Connect to MQTT broker
   connectMqtt();
 }
 
@@ -96,6 +98,9 @@ void initOutputPayloadPin(uint8_t pin) {
    Shows the notification beeps based on the type
 */
 void showNotificationBeeps(uint8_t pin, String notificationType) {
+  // For WiFi, the notification is beep-beep-pause (total 1 sec)
+  // For MQTT, the notification is beep-beep-beep-pause (total 1 sec)
+  // Else, the notification is beep-pause (total 1 sec)
   if (notificationType == NOTIFICATION_TYPE_WIFI) {
     digitalWrite(pin, !digitalRead(pin));
     delay(100);
@@ -130,9 +135,12 @@ void showNotificationBeeps(uint8_t pin, String notificationType) {
    Connect to MQTT server
 */
 void connectMqtt() {
+  // Keep checking until MQTT is connected
   while (!client.connected()) {
+    // Connect to MQTT broker using the client id and credential
     if (client.connect(clientID, mqttUser, mqttPassword)) {
       Serial.println("Connected to MQTT");
+      // Subscribe to command topic
       client.subscribe(MQTT_COMMAND_TOPIC);
       Serial.print("Subscribed to topic ");
       Serial.println(MQTT_COMMAND_TOPIC);
@@ -141,6 +149,7 @@ void connectMqtt() {
       Serial.println(client.state());
       Serial.println("Retrying in 30 seconds");
 
+      // Wait before retrying
       for (unsigned int i = 0; i < 30; i++) {
         Serial.print(".");
         showNotificationBeeps(NOTIFICATION_LED_PIN, NOTIFICATION_TYPE_MQTT);
@@ -160,6 +169,7 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
   payload[length] = '\0';
   Serial.println((char*)payload);
 
+  // Deserialize the payload string to json object and parse the parameters
   StaticJsonDocument<256> doc;
   deserializeJson(doc, payload, length);
   String sender = doc["sender"];
@@ -167,6 +177,7 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
   unsigned long duration = doc["duration"];
   activeDurationMillis = duration * 1000;
 
+  // Validate and call necessary actions
   if (!((String)MQTT_SENDER).equals(sender)) {
     publishResponse(RESPONSE_TYPE_COMMAND, false, "Unknown sender " + sender);
   } else {
@@ -184,6 +195,7 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
    Turn on the output GPIO pin
 */
 void activatePayload(uint8_t pin) {
+  // If the payload is already not active then turn it on, else return error
   if (!isOutputOn(pin)) {
     Serial.println("Turning payload ON");
     digitalWrite(pin, LOW);
@@ -200,6 +212,7 @@ void activatePayload(uint8_t pin) {
    Turn off the output GPIO pin
 */
 void deactivatePayload(uint8_t pin) {
+  // If the payload is already active then turn it off, else return error
   if (isOutputOn(pin)) {
     Serial.println("Turning payload OFF");
     digitalWrite(pin, HIGH);
@@ -216,6 +229,7 @@ void deactivatePayload(uint8_t pin) {
    Check wheter the output GPIO pin is on or off
 */
 bool isOutputOn(uint8_t pin) {
+  // Read the pin and return
   return !digitalRead(pin);  // @TODO remove '!' later
 }
 
@@ -236,9 +250,11 @@ void publishResponse(String type, bool success, String message) {
   Serial.print("Response Json is ");
   Serial.println(responseJsonStr);
 
+  // Prepare the response payload
   byte responseLength = responseJsonStr.length() + 1;
   char response[responseLength];
   responseJsonStr.toCharArray(response, responseLength);
+  // Publish the response to the response topic
   client.publish(MQTT_RESPONSE_TOPIC, response);
 }
 
@@ -264,22 +280,28 @@ void setup() {
     The code that keeps running
 */
 void loop() {
+  // Setup the millis() for the heartbeat
   unsigned long currentMillis = millis();
 
+  // Keep checking whether MQTT is connected or not. Retry if not connected.
   if (!client.connected()) {
     connectMqtt();
   }
 
+  // Keep the MQTT client active
   client.loop();
 
+  // Auto turn off the payload once the activate period is over
+  if (isOutputOn(PAYLOAD_GPIO_PIN) && (currentMillis >= activeStartMillis) && (unsigned long)(currentMillis - activeStartMillis) > activeDurationMillis) {
+    deactivatePayload(PAYLOAD_GPIO_PIN);
+  }
+
+  // Publish the response at intervals
   if ((currentMillis >= aliveMillis) && (unsigned long)(currentMillis - aliveMillis) >= ALIVE_PUBLISH_INTERVAL_MILLISEC) {
     aliveMillis = currentMillis;
     publishResponse(RESPONSE_TYPE_ALIVE);
   }
 
-  if (isOutputOn(PAYLOAD_GPIO_PIN) && (currentMillis >= activeStartMillis) && (unsigned long)(currentMillis - activeStartMillis) > activeDurationMillis) {
-    deactivatePayload(PAYLOAD_GPIO_PIN);
-  }
-
-  delay(50);
+  // Breathing time for the loop
+  delay(100);
 }

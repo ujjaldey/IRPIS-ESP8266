@@ -175,13 +175,16 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
   String sender = doc["sender"];
   String action = doc["action"];
   unsigned long duration = doc["duration"];
-  activeDurationMillis = duration * 1000;
-
+  
   // Validate and call necessary actions
   if (!((String)MQTT_SENDER).equals(sender)) {
     publishResponse(RESPONSE_TYPE_COMMAND, false, "Unknown sender " + sender);
+  } else if (action == (String)MQTT_ACTION_ON && duration <= 0) {
+    publishResponse(RESPONSE_TYPE_COMMAND, false, "Duration " + ((String)duration) + " should be greater than 0 when the action is " + MQTT_ACTION_ON);
   } else {
     if (action == (String)MQTT_ACTION_ON) {
+      // Assign the duration when the action is ON
+      activeDurationMillis = duration * 1000;
       activatePayload(PAYLOAD_GPIO_PIN);
     } else if (action == (String)MQTT_ACTION_OFF) {
       deactivatePayload(PAYLOAD_GPIO_PIN);

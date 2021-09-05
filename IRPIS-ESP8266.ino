@@ -200,12 +200,12 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
 void activatePayload(uint8_t pin) {
   // If the payload is already not active then turn it on, else return error
   if (!isOutputOn(pin)) {
-    Serial.println("Turning payload ON");
+    Serial.println("Turning payload on");
     digitalWrite(pin, LOW);
     activeStartMillis = millis();
     publishResponse(RESPONSE_TYPE_COMMAND);
   } else {
-    String message = "Payload is already ON";
+    String message = "Irrigation is already on";
     Serial.println(message);
     publishResponse(RESPONSE_TYPE_COMMAND, false, message);
   }
@@ -217,12 +217,12 @@ void activatePayload(uint8_t pin) {
 void deactivatePayload(uint8_t pin) {
   // If the payload is already active then turn it off, else return error
   if (isOutputOn(pin)) {
-    Serial.println("Turning payload OFF");
+    Serial.println("Turning payload off");
     digitalWrite(pin, HIGH);
     activeDurationMillis = 0;
     publishResponse(RESPONSE_TYPE_COMMAND);
   } else {
-    String message = "Payload is already OFF";
+    String message = "Irrigation is already off";
     Serial.println(message);
     publishResponse(RESPONSE_TYPE_COMMAND, false, message);
   }

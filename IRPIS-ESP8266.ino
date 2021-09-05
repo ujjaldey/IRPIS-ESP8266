@@ -245,9 +245,9 @@ void publishResponse(String type, bool success, String message) {
   String responseJsonStr;
 
   if (success) {
-    responseJsonStr = "{\"sender\": \"IRPIS-ESP8266\", \"success\": \"" + successStr + "\", \"type\": \"" + type + "\", \"status\": \"" + status + "\"}";
+    responseJsonStr = "{\"sender\": \"IRPIS-ESP8266\", \"success\": \"" + successStr + "\", \"type\": \"" + type + "\", \"status\": \"" + status + "\", \"message\": \"\"}";
   } else {
-    responseJsonStr = "{\"sender\": \"IRPIS-ESP8266\", \"success\": \"" + successStr + "\", \"type\": \"" + type + "\", \"message\": \"" + message + "\"}";
+    responseJsonStr = "{\"sender\": \"IRPIS-ESP8266\", \"success\": \"" + successStr + "\", \"type\": \"" + type + "\", \"status\": \"" + status + "\", \"message\": \"" + message + "\"}";
   }
 
   Serial.print("Response Json is ");

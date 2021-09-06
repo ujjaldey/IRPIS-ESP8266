@@ -12,9 +12,11 @@
 #define SUCCESS_FALSE "false"
 #define NOTIFICATION_TYPE_WIFI "WIFI"
 #define NOTIFICATION_TYPE_MQTT "MQTT"
-#define PAYLOAD_GPIO_PIN 2
-#define NOTIFICATION_LED_PIN 16
-#define ALIVE_PUBLISH_INTERVAL_MILLISEC 10000
+#define PAYLOAD_GPIO_PIN 0
+#define NOTIFICATION_LED_PIN 2
+#define ALIVE_PUBLISH_INTERVAL_MILLISEC 30000
+#define BREATHING_NOTIFICATION_INTERVAL_MILLISEC 2500
+#define BREATHING_DELAY_MILLISEC 100
 #define RESPONSE_TYPE_ALIVE "ALIVE"
 #define RESPONSE_TYPE_COMMAND "COMMAND"
 
@@ -34,6 +36,7 @@ PubSubClient client(espClient);
 unsigned long aliveMillis = 0;
 unsigned long activeStartMillis = 0;
 unsigned long activeDurationMillis = 0;
+unsigned long breathingCounter = 0;
 
 // Prototype function with default argument values
 void publishResponse(String type, bool success = true, String message = "");
@@ -92,6 +95,23 @@ void initNotificationLedPin(uint8_t pin) {
 void initOutputPayloadPin(uint8_t pin) {
   pinMode(pin, OUTPUT);
   digitalWrite(pin, HIGH);
+}
+
+/*
+   Shows the breathing beeps according to whether the system is either in standby or active
+*/
+void showBreathingBeeps(uint8_t pin) {
+  if (breathingCounter == 0) {
+    digitalWrite(pin, LOW);
+  } else if (breathingCounter == 5) {
+    digitalWrite(pin, HIGH);
+  } else if (isOutputOn(PAYLOAD_GPIO_PIN) && breathingCounter >= BREATHING_NOTIFICATION_INTERVAL_MILLISEC / BREATHING_DELAY_MILLISEC) {
+    breathingCounter = -1;  // so that in next loop it becomes 0 and satisfies the first condition
+  } else if (!isOutputOn(PAYLOAD_GPIO_PIN) && breathingCounter >= ALIVE_PUBLISH_INTERVAL_MILLISEC / BREATHING_DELAY_MILLISEC) {
+    breathingCounter = -1;  // so that in next loop it becomes 0 and satisfies the first condition
+  }
+
+  breathingCounter++;
 }
 
 /*
@@ -175,7 +195,7 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
   String sender = doc["sender"];
   String action = doc["action"];
   unsigned long duration = doc["duration"];
-  
+
   // Validate and call necessary actions
   if (!((String)MQTT_SENDER).equals(sender)) {
     publishResponse(RESPONSE_TYPE_COMMAND, false, "Unknown sender " + sender);
@@ -233,7 +253,7 @@ void deactivatePayload(uint8_t pin) {
 */
 bool isOutputOn(uint8_t pin) {
   // Read the pin and return
-  return !digitalRead(pin);  // @TODO remove '!' later
+  return !digitalRead(pin);
 }
 
 /*
@@ -305,6 +325,9 @@ void loop() {
     publishResponse(RESPONSE_TYPE_ALIVE);
   }
 
+  // Show the breathing beeps
+  showBreathingBeeps(NOTIFICATION_LED_PIN);
+
   // Breathing time for the loop
-  delay(100);
+  delay(BREATHING_DELAY_MILLISEC);
 }

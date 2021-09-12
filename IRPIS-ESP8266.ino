@@ -6,6 +6,7 @@
 #define MQTT_COMMAND_TOPIC "irpis/esp8266/command"
 #define MQTT_RESPONSE_TOPIC "irpis/esp8266/response"
 #define MQTT_SENDER "IRPIS-RPI"
+#define ESP_BOARD "IRPIS-ESP8266"
 #define MQTT_ACTION_ON "ON"
 #define MQTT_ACTION_OFF "OFF"
 #define SUCCESS_TRUE "true"
@@ -39,7 +40,7 @@ unsigned long activeDurationMillis = 0;
 unsigned long breathingCounter = 0;
 
 // Prototype function with default argument values
-void publishResponse(String type, bool success = true, String message = "");
+void publishResponse(String type, bool success = true, String message = "", unsigned long duration = 0);
 
 /*
    Initiate and connect to WiFi
@@ -203,9 +204,7 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
     publishResponse(RESPONSE_TYPE_COMMAND, false, "Duration " + ((String)duration) + " should be greater than 0 when the action is " + MQTT_ACTION_ON);
   } else {
     if (action == (String)MQTT_ACTION_ON) {
-      // Assign the duration when the action is ON
-      activeDurationMillis = duration * 1000;
-      activatePayload(PAYLOAD_GPIO_PIN);
+      activatePayload(PAYLOAD_GPIO_PIN, duration);
     } else if (action == (String)MQTT_ACTION_OFF) {
       deactivatePayload(PAYLOAD_GPIO_PIN);
     } else {
@@ -217,13 +216,16 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
 /*
    Turn on the output GPIO pin
 */
-void activatePayload(uint8_t pin) {
+void activatePayload(uint8_t pin, unsigned long duration) {
   // If the payload is already not active then turn it on, else return error
   if (!isOutputOn(pin)) {
     Serial.println("Turning payload on");
     digitalWrite(pin, LOW);
+    // Assign the duration when the action is ON
+    activeDurationMillis = duration * 1000;
+    // Initialize the activeStartMillis with current millis
     activeStartMillis = millis();
-    publishResponse(RESPONSE_TYPE_COMMAND);
+    publishResponse(RESPONSE_TYPE_COMMAND, true, "", duration);
   } else {
     String message = "Irrigation is already on";
     Serial.println(message);
@@ -259,15 +261,15 @@ bool isOutputOn(uint8_t pin) {
 /*
    Publishes the response. The response could be for COMMAND or ALIVE. The response will vary based on success or failure
 */
-void publishResponse(String type, bool success, String message) {
+void publishResponse(String type, bool success, String message, unsigned long duration) {
   String status = isOutputOn(PAYLOAD_GPIO_PIN) ? MQTT_ACTION_ON : MQTT_ACTION_OFF;
   String successStr = success ? SUCCESS_TRUE : SUCCESS_FALSE;
   String responseJsonStr;
 
   if (success) {
-    responseJsonStr = "{\"sender\": \"IRPIS-ESP8266\", \"success\": \"" + successStr + "\", \"type\": \"" + type + "\", \"status\": \"" + status + "\", \"message\": \"\"}";
+    responseJsonStr = "{\"sender\": \"" + String(ESP_BOARD) + "\", \"success\": \"" + successStr + "\", \"type\": \"" + type + "\", \"status\": \"" + status + "\", \"duration\": \"" + String(duration) + "\", \"message\": \"\"}";
   } else {
-    responseJsonStr = "{\"sender\": \"IRPIS-ESP8266\", \"success\": \"" + successStr + "\", \"type\": \"" + type + "\", \"status\": \"" + status + "\", \"message\": \"" + message + "\"}";
+    responseJsonStr = "{\"sender\": \"" + String(ESP_BOARD) + "\", \"success\": \"" + successStr + "\", \"type\": \"" + type + "\", \"status\": \"" + status + "\", \"duration\": \"" + String(duration) + "\", \"message\": \"" + message + "\"}";
   }
 
   Serial.print("Response Json is ");

@@ -9,6 +9,7 @@
 #define ESP_BOARD "IRPIS-ESP8266"
 #define MQTT_ACTION_ON "ON"
 #define MQTT_ACTION_OFF "OFF"
+#define MQTT_ACTION_STATUS "STATUS"
 #define SUCCESS_TRUE "true"
 #define SUCCESS_FALSE "false"
 #define NOTIFICATION_TYPE_WIFI "WIFI"
@@ -38,9 +39,10 @@ unsigned long aliveMillis = 0;
 unsigned long activeStartMillis = 0;
 unsigned long activeDurationMillis = 0;
 unsigned long breathingCounter = 0;
+unsigned int executionIdGlobal = 0;
 
 // Prototype function with default argument values
-void publishResponse(String type, bool success = true, String message = "", unsigned long duration = 0);
+void publishResponse(String type, bool success = true, String message = "", unsigned long duration = 0, unsigned int executionId = 0);
 
 /*
    Initiate and connect to WiFi
@@ -196,19 +198,22 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
   String sender = doc["sender"];
   String action = doc["action"];
   unsigned long duration = doc["duration"];
+  unsigned int executionId = doc["execution_id"];
 
   // Validate and call necessary actions
   if (!((String)MQTT_SENDER).equals(sender)) {
-    publishResponse(RESPONSE_TYPE_COMMAND, false, "Unknown sender " + sender);
+    publishResponse(RESPONSE_TYPE_COMMAND, false, "Unknown sender " + sender, 0, executionId);
   } else if (action == (String)MQTT_ACTION_ON && duration <= 0) {
-    publishResponse(RESPONSE_TYPE_COMMAND, false, "Duration " + ((String)duration) + " should be greater than 0 when the action is " + MQTT_ACTION_ON);
+    publishResponse(RESPONSE_TYPE_COMMAND, false, "Duration " + ((String)duration) + " should be greater than 0 when the action is " + MQTT_ACTION_ON, 0, executionId);
   } else {
     if (action == (String)MQTT_ACTION_ON) {
-      activatePayload(PAYLOAD_GPIO_PIN, duration);
+      activatePayload(PAYLOAD_GPIO_PIN, duration, executionId);
     } else if (action == (String)MQTT_ACTION_OFF) {
-      deactivatePayload(PAYLOAD_GPIO_PIN);
+      deactivatePayload(PAYLOAD_GPIO_PIN, executionId);
+    } else if (action == (String)MQTT_ACTION_STATUS) {
+      publishResponse(MQTT_ACTION_STATUS, true, "ESP8266 is up and running", (int)(activeDurationMillis / 1000), executionIdGlobal);
     } else {
-      publishResponse(RESPONSE_TYPE_COMMAND, false, "Unknown action " + action);
+      publishResponse(RESPONSE_TYPE_COMMAND, false, "Unknown action " + action, 0, executionId);
     }
   }
 }
@@ -216,38 +221,45 @@ void callbackMqtt(char* topic, byte* payload, unsigned int length) {
 /*
    Turn on the output GPIO pin
 */
-void activatePayload(uint8_t pin, unsigned long duration) {
+void activatePayload(uint8_t pin, unsigned long duration, unsigned int executionId) {
   // If the payload is already not active then turn it on, else return error
   if (!isOutputOn(pin)) {
     Serial.println("Turning payload on");
+    // Assig the execution id to the global variable
+    executionIdGlobal = executionId;
     digitalWrite(pin, LOW);
     // Assign the duration when the action is ON
     activeDurationMillis = duration * 1000;
     // Initialize the activeStartMillis with current millis
     activeStartMillis = millis();
-    publishResponse(RESPONSE_TYPE_COMMAND, true, "", duration);
+    publishResponse(RESPONSE_TYPE_COMMAND, true, "", duration, executionId);
   } else {
     String message = "Irrigation is already on";
     Serial.println(message);
-    publishResponse(RESPONSE_TYPE_COMMAND, false, message);
+    publishResponse(RESPONSE_TYPE_COMMAND, false, message, duration, executionId);
   }
 }
 
 /*
    Turn off the output GPIO pin
 */
-void deactivatePayload(uint8_t pin) {
+void deactivatePayload(uint8_t pin, unsigned int executionId) {
   // If the payload is already active then turn it off, else return error
   if (isOutputOn(pin)) {
     Serial.println("Turning payload off");
+    // Assig the execution id to the global variable
+    executionIdGlobal = executionId;
     digitalWrite(pin, HIGH);
     activeDurationMillis = 0;
-    publishResponse(RESPONSE_TYPE_COMMAND);
+    publishResponse(RESPONSE_TYPE_COMMAND, true, "", 0, executionId);
   } else {
     String message = "Irrigation is already off";
     Serial.println(message);
-    publishResponse(RESPONSE_TYPE_COMMAND, false, message);
+    publishResponse(RESPONSE_TYPE_COMMAND, false, message, 0, executionId);
   }
+
+  // Reset the global variable after the payload is turned off
+  executionIdGlobal = 0;
 }
 
 /*
@@ -261,15 +273,27 @@ bool isOutputOn(uint8_t pin) {
 /*
    Publishes the response. The response could be for COMMAND or ALIVE. The response will vary based on success or failure
 */
-void publishResponse(String type, bool success, String message, unsigned long duration) {
+void publishResponse(String type, bool success, String message, unsigned long duration, unsigned int executionId) {
   String status = isOutputOn(PAYLOAD_GPIO_PIN) ? MQTT_ACTION_ON : MQTT_ACTION_OFF;
   String successStr = success ? SUCCESS_TRUE : SUCCESS_FALSE;
   String responseJsonStr;
 
   if (success) {
-    responseJsonStr = "{\"sender\": \"" + String(ESP_BOARD) + "\", \"success\": \"" + successStr + "\", \"type\": \"" + type + "\", \"status\": \"" + status + "\", \"duration\": \"" + String(duration) + "\", \"message\": \"\"}";
+    responseJsonStr = "{\"sender\": \"" + String(ESP_BOARD) +
+                      "\", \"success\": \"" + successStr +
+                      "\", \"type\": \"" + type +
+                      "\", \"status\": \"" + status +
+                      "\", \"duration\": \"" + String(duration) +
+                      "\", \"execution_id\": " + executionId +
+                      ", \"message\": \"" + message + "\"}";
   } else {
-    responseJsonStr = "{\"sender\": \"" + String(ESP_BOARD) + "\", \"success\": \"" + successStr + "\", \"type\": \"" + type + "\", \"status\": \"" + status + "\", \"duration\": \"" + String(duration) + "\", \"message\": \"" + message + "\"}";
+    responseJsonStr = "{\"sender\": \"" + String(ESP_BOARD) +
+                      "\", \"success\": \"" + successStr +
+                      "\", \"type\": \"" + type +
+                      "\", \"status\": \"" + status +
+                      "\", \"duration\": \"" + String(duration) +
+                      "\", \"execution_id\": " + executionId +
+                      ", \"message\": \"" + message + "\"}";
   }
 
   Serial.print("Response Json is ");
@@ -318,13 +342,15 @@ void loop() {
 
   // Auto turn off the payload once the activate period is over
   if (isOutputOn(PAYLOAD_GPIO_PIN) && (currentMillis >= activeStartMillis) && (unsigned long)(currentMillis - activeStartMillis) > activeDurationMillis) {
-    deactivatePayload(PAYLOAD_GPIO_PIN);
+    deactivatePayload(PAYLOAD_GPIO_PIN, executionIdGlobal);
+    // Reset the global variable after the payload is turned off
+    executionIdGlobal = 0;
   }
 
   // Publish the response at intervals
   if ((currentMillis >= aliveMillis) && (unsigned long)(currentMillis - aliveMillis) >= ALIVE_PUBLISH_INTERVAL_MILLISEC) {
     aliveMillis = currentMillis;
-    publishResponse(RESPONSE_TYPE_ALIVE);
+    publishResponse(RESPONSE_TYPE_ALIVE, true, "", 0, executionIdGlobal);
   }
 
   // Show the breathing beeps
